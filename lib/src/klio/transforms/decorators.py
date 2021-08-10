@@ -508,13 +508,6 @@ def _handle_klio(*args, max_thread_count=None, thread_limiter=None, **kwargs):
                 incoming_item = args[0]
                 args = args[1:]
 
-                wrapper = __serialize_klio_message
-                wrapper_kwargs = {
-                    "ctx": self,
-                    "func": func_or_meth,
-                    "incoming_item": incoming_item,
-                    "metrics": metrics_objs,
-                }
                 # Only the process method of a DoFn is a generator - otherwise
                 # beam can't pickle a generator
                 if __is_dofn_process_method(self, func_or_meth):
@@ -525,8 +518,17 @@ def _handle_klio(*args, max_thread_count=None, thread_limiter=None, **kwargs):
                         "incoming_item": incoming_item,
                         "metrics": metrics_objs,
                     }
-
-                return wrapper(*args, **wrapper_kwargs, **kwargs)
+                    result = wrapper(*args, **wrapper_kwargs, **kwargs)
+                    yield from result
+                else:
+                    wrapper = __serialize_klio_message
+                    wrapper_kwargs = {
+                        "ctx": self,
+                        "func": func_or_meth,
+                        "incoming_item": incoming_item,
+                        "metrics": metrics_objs,
+                    }
+                    return wrapper(*args, **wrapper_kwargs, **kwargs)
 
         @functools.wraps(func_or_meth)
         def func_wrapper(incoming_item, *args, **kwargs):

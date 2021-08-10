@@ -188,6 +188,48 @@ def test_thread_limiting(
     mock_semaphore.return_value.release.assert_called_once_with()
 
 
+@pytest.mark.parametrize(
+    "max_thread_count,patch_str",
+    (
+        (None, "threading.BoundedSemaphore"),
+        (_thread_limiter.ThreadLimit.DEFAULT, "threading.BoundedSemaphore"),
+        (_thread_limiter.ThreadLimit.NONE, "_DummySemaphore"),
+    ),
+)
+def test_thread_limiting_process_method(
+    max_thread_count, patch_str, kmsg, mock_config, mocker, monkeypatch
+):
+    mock_function = mocker.Mock()
+    mock_semaphore = mocker.Mock()
+    monkeypatch.setattr(
+        f"klio.utils._thread_limiter.{patch_str}", mock_semaphore
+    )
+
+    kwargs = {}
+    if max_thread_count is not None:
+        kwargs["max_thread_count"] = max_thread_count
+
+    class TestDoFn(beam.DoFn):
+        @decorators._handle_klio(**kwargs)
+        def process(self, msg_data):
+            mock_semaphore.return_value.acquire.assert_called_once_with()
+            mock_semaphore.return_value.release.assert_not_called()
+            mock_function()
+            return msg_data
+
+    dofn = TestDoFn()
+
+    # notice - process is always a generator, even when `return` is used
+    gen = dofn.process(kmsg.SerializeToString())
+
+    # need to pull everything from the generator
+    [z for z in gen]
+
+    assert 1 == mock_function.call_count
+    mock_semaphore.return_value.acquire.assert_called_once_with()
+    mock_semaphore.return_value.release.assert_called_once_with()
+
+
 def test_thread_limiting_custom_limiter(
     kmsg, mock_config, mocker, monkeypatch
 ):
